@@ -23,13 +23,28 @@
 // ==============================================================================
 const CONFIG = {
   // ID file Google Doc mẫu (tạo từ file templates/GGT_mau_placeholder.docx)
-  TEMPLATE_DOC_ID: 'DAN_ID_GOOGLE_DOC_MAU_VAO_DAY',
+  TEMPLATE_DOC_ID: '1-d1-EzqqMn--gtmMR4dX2fvxXl6Q3zFMb1-JufniQyc', // Giữ cấu hình như bản gốc để không cần nhập lại
 
   // ID thư mục Google Drive để lưu các file PDF xuất ra
-  OUTPUT_FOLDER_ID: 'DAN_ID_THU_MUC_DRIVE_LUU_PDF_VAO_DAY',
+  OUTPUT_FOLDER_ID: '1RgRcem14hvJdTa_Cq7As02RnYS8idFQ6', // Giữ cấu hình như bản gốc để không cần nhập lại
 
-  // Bật/tắt gửi email cho giảng viên (false = không gửi email, chỉ tạo file PDF và ghi link vô Sheet)
+  // Chỉ email giảng viên nếu được bật; hệ thống không gửi email cho sinh viên.
   SEND_EMAIL: false,
+
+  // Mặc định chỉ người có quyền với thư mục Drive mới xem được PDF.
+  // Chỉ đổi sang ANYONE_WITH_LINK khi đã được đơn vị cho phép chia sẻ công khai bằng liên kết.
+  PDF_SHARING_MODE: 'RESTRICTED',
+
+  // Giới hạn số dòng mỗi lần chạy thủ công để tránh vượt thời gian chạy Apps Script.
+  MAX_BATCH_ROWS: 25,
+  MAX_QUEUE_ROWS: 500,
+  BATCH_RUNTIME_BUDGET_MS: 240000,
+  AI_ENABLED: false,
+  AI_DICE_MIN: 0.30,
+  AI_DICE_MAX: 0.50,
+  AI_CONFIDENCE_THRESHOLD: 0.90,
+  AUTO_NUMBERING: false,
+  REQUIRE_APPROVAL: false,
 
   // Lọc thời gian nộp đơn: chỉ xử lý các yêu cầu từ thời điểm này tới nay (định dạng YYYY-MM-DD).
   // Mặc định '2026-08-01' = chỉ xử lý các yêu cầu bắt đầu từ đầu tháng 8/2026 tới mới nhất; để trống = xử lý tất cả
@@ -74,6 +89,7 @@ const CONFIG = {
     STATUS: 'TRẠNG THÁI GỬI GGT',
     LINK: 'LINK PDF GGT',
     TIME: 'THỜI GIAN XỬ LÝ GGT',
+    DOC_NO: 'SỐ GIẤY GGT',
     TAX_NAME: 'Tên Doanh Nghiệp (Tra cứu MST)',
     TAX_NOTE: 'Kết quả đối soát MST'
   }
@@ -137,7 +153,7 @@ function handleFormSubmit(e) {
  * @param {GoogleAppsScript.Spreadsheet.Sheet} sheet 
  * @param {number} row 
  */
-function processRow_(sheet, row, isTestMode) {
+function processRow_(sheet, row, isTestMode, approvedForRelease) {
   const cols = getColumns_(sheet);
   const rowValues = sheet.getRange(row, 1, 1, sheet.getLastColumn()).getValues()[0];
 
@@ -145,7 +161,7 @@ function processRow_(sheet, row, isTestMode) {
   // Không gửi lại nếu đã hoàn thành hoặc đã được duyệt trước đó trong Sheet
   if (isAlreadyProcessed_(currentStatus)) {
     Logger.log('Dòng ' + row + ' đã được xử lý/phê duyệt trước đó ("' + currentStatus + '"). Bỏ qua.');
-    return;
+    return false;
   }
 
   // Lọc theo thời gian nộp đơn: chỉ xử lý các yêu cầu bắt đầu từ đầu tháng 8/2026 tới mới nhất
@@ -158,13 +174,19 @@ function processRow_(sheet, row, isTestMode) {
       if (subDate && filterStart && subDate < filterStart) {
         Logger.log('Dòng ' + row + ' nộp ngày ' + Utilities.formatDate(subDate, Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss') +
                    ' (trước mốc ' + CONFIG.FILTER_START_DATE + '). Bỏ qua theo yêu cầu chỉ xử lý từ đầu tháng 8/2026.');
-        return;
+        return false;
       }
     }
   }
 
   let taxResult = null;
   try {
+    // Đánh dấu trước để có thể nhận diện và chạy lại nếu execution bị dừng giữa chừng.
+    if (cols.STATUS && cols.STATUS > 0) {
+      sheet.getRange(row, cols.STATUS).setValue('Processing');
+      SpreadsheetApp.flush();
+    }
+
     // 1. Trích xuất dữ liệu thô
     const raw = {};
     Object.keys(FIELD_KEYWORDS).forEach(function (k) {
@@ -188,6 +210,15 @@ function processRow_(sheet, row, isTestMode) {
       }
     }
 
+    if (CONFIG.REQUIRE_APPROVAL && !isTestMode && !approvedForRelease) {
+      writePendingApproval_(sheet, row, cols, taxResult);
+      Logger.log('Dòng ' + row + ' hợp lệ và đang chờ người phụ trách duyệt.');
+      return true;
+    }
+
+    // Chế độ kiểm thử không cấp số văn bản thật.
+    studentData.soGgt = (CONFIG.AUTO_NUMBERING && !isTestMode) ? nextDocumentNumber_() : '';
+
     // 4. Điền mẫu Google Doc & xuất file PDF (lưu vào Drive)
     const pdf = createPdf_(studentData);
 
@@ -199,14 +230,16 @@ function processRow_(sheet, row, isTestMode) {
     }
 
     // 6. Ghi nhận kết quả thành công và link PDF vào Sheet
-    writeSuccess_(sheet, row, cols, pdf.url, taxResult);
+    writeSuccess_(sheet, row, cols, pdf.url, taxResult, studentData.soGgt || '');
     Logger.log('Đã xử lý thành công dòng ' + row + ' cho MSSV: ' + studentData.mssv + ' | Link PDF: ' + pdf.url);
+    return true;
 
   } catch (err) {
     Logger.log('Lỗi tại dòng ' + row + ': ' + err.message);
     const taxRes = taxResult || (err.taxInfo ? { name: err.taxInfo.name } : null);
     writeError_(sheet, row, cols, err.message, taxRes);
     notifyAdmin_(row, err);
+    return false;
   }
 }
 
@@ -513,6 +546,40 @@ function fetchTaxPayerInfo_(mst) {
   throw new Error('Không thể kết nối đến hệ thống kiểm tra MST: ' + (lastError ? lastError.message : 'Timeout'));
 }
 
+function judgeCompanyNames_(studentName, taxName, foreignName, abbreviation) {
+  const props = PropertiesService.getScriptProperties();
+  const apiKey = props.getProperty('GEMINI_API_KEY');
+  const model = props.getProperty('GEMINI_MODEL');
+  if (!apiKey || !model) throw new Error('Chưa cấu hình GEMINI_API_KEY/GEMINI_MODEL trong Script Properties.');
+  const prompt = [
+    'So sánh tên doanh nghiệp để xác định có cùng một tổ chức hay không.',
+    'Chỉ dùng tên được cung cấp; không suy đoán. Trả về JSON: {"match":boolean,"confidence":number 0-1,"reason":string}.',
+    'Tên khai báo: ' + String(studentName || '').slice(0, 250),
+    'Tên đăng ký thuế: ' + String(taxName || '').slice(0, 250),
+    'Tên nước ngoài: ' + String(foreignName || '').slice(0, 250),
+    'Tên viết tắt: ' + String(abbreviation || '').slice(0, 120)
+  ].join('\n');
+  const url = 'https://generativelanguage.googleapis.com/v1beta/models/' + encodeURIComponent(model) + ':generateContent';
+  const payload = {contents: [{parts: [{text: prompt}]}], generationConfig: {temperature: 0, responseMimeType: 'application/json'}};
+  let lastError = '';
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    const response = UrlFetchApp.fetch(url, {method: 'post', contentType: 'application/json', muteHttpExceptions: true,
+      headers: {'x-goog-api-key': apiKey}, payload: JSON.stringify(payload)});
+    const code = response.getResponseCode();
+    if (code === 200) {
+      const data = JSON.parse(response.getContentText());
+      const text = data.candidates[0].content.parts.map(function (part) { return part.text || ''; }).join('');
+      const result = JSON.parse(text);
+      if (typeof result.match !== 'boolean' || !isFinite(Number(result.confidence))) throw new Error('AI trả về JSON sai cấu trúc.');
+      return {match: result.match, confidence: Math.max(0, Math.min(1, Number(result.confidence))), reason: String(result.reason || '').slice(0, 300)};
+    }
+    lastError = 'Gemini HTTP ' + code;
+    if (code !== 429 && code < 500) break;
+    Utilities.sleep(2000 * attempt);
+  }
+  throw new Error(lastError || 'Gemini không phản hồi');
+}
+
 /**
  * Thuật toán đối chứng so sánh tên công ty:
  * - Chuẩn hóa các từ viết tắt doanh nghiệp thông dụng (CTY, TNHH, MTV, CP, JSC, LTD, CORP).
@@ -593,6 +660,16 @@ function compareCompanyNames_(studentName, apiName, orgType, foreignName, abbrev
     }
   }
 
+  // AI chỉ xử lý vùng xám và chỉ nhận tên doanh nghiệp, không nhận dữ liệu sinh viên.
+  if (CONFIG.AI_ENABLED && directSim.dice >= CONFIG.AI_DICE_MIN && directSim.dice <= CONFIG.AI_DICE_MAX) {
+    try {
+      const aiResult = judgeCompanyNames_(studentName, apiName, foreignName, abbrev);
+      if (aiResult.match === true && Number(aiResult.confidence) >= CONFIG.AI_CONFIDENCE_THRESHOLD) {
+        return { isMatch: true, reason: 'AI hỗ trợ đối soát vùng xám (' + Math.round(aiResult.confidence * 100) + '%): ' + aiResult.reason };
+      }
+      return { isMatch: false, reason: 'AI không xác nhận đủ ngưỡng tin cậy: ' + (aiResult.reason || 'cần kiểm tra thủ công') };
+    } catch (aiError) { Logger.log('AI không khả dụng, quay về kết quả luật: ' + aiError.message); }
+  }
   return { isMatch: false, reason: 'Không tương đồng (điểm số: ' + Math.round(directSim.dice * 100) + '%)' };
 }
 
@@ -722,9 +799,22 @@ function computeWeightedSimilarity_(tok1, tok2) {
 /**
  * Tạo file PDF từ mẫu Google Doc với dữ liệu của sinh viên.
  */
+function nextDocumentNumber_() {
+  const lock = LockService.getDocumentLock();
+  lock.waitLock(20000);
+  try {
+    const props = PropertiesService.getScriptProperties();
+    const year = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'yyyy');
+    const key = 'GGT_SEQUENCE_' + year;
+    const next = Number(props.getProperty(key) || 0) + 1;
+    props.setProperty(key, String(next));
+    return Utilities.formatString('%04d-GGT-CNTT/%s', next, year);
+  } finally { lock.releaseLock(); }
+}
+
 function createPdf_(data) {
-  const template = DriveApp.getFileById(CONFIG.TEMPLATE_DOC_ID);
-  const folder = DriveApp.getFolderById(CONFIG.OUTPUT_FOLDER_ID);
+  const template = DriveApp.getFileById(getPrivateConfig_('TEMPLATE_DOC_ID'));
+  const folder = DriveApp.getFolderById(getPrivateConfig_('OUTPUT_FOLDER_ID'));
 
   const cleanName = removeAccents_(data.hoTen).replace(/[^A-Za-z0-9]/g, '');
   const baseName = 'GGT_' + data.mssv + '_' + cleanName;
@@ -747,6 +837,7 @@ function createPdf_(data) {
       '{{SDT}}': data.sdt,
       '{{VI_TRI}}': data.viTri,
       '{{CONG_TY}}': data.congTy,
+      '{{SO_GGT}}': data.soGgt || '',
       '{{MST}}': data.mst || '',
       '{{MA_SO_THUE}}': data.mst || '',
       '{{HOC_PHAN}}': data.hocPhan || '',
@@ -770,10 +861,15 @@ function createPdf_(data) {
     const blob = tmpCopy.getAs(MimeType.PDF).setName(baseName + '.pdf');
     const pdfFile = folder.createFile(blob);
 
-    // Cấp quyền xem để giảng viên bấm vào link trên Sheet là xem được ngay
-    try {
-      pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
-    } catch (ignore) {}
+    // Chỉ bật quyền xem bằng liên kết khi cấu hình được chủ động thay đổi.
+    if (CONFIG.PDF_SHARING_MODE === 'ANYONE_WITH_LINK') {
+      try {
+        pdfFile.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.VIEW);
+      } catch (sharingError) {
+        pdfFile.setTrashed(true);
+        throw new Error('Không thể cấp quyền xem PDF theo cấu hình chia sẻ: ' + sharingError.message);
+      }
+    }
 
     return {
       blob: pdfFile.getBlob(),
@@ -1092,6 +1188,8 @@ function getColumns_(sheet) {
     }
   ];
 
+  if (CONFIG.AUTO_NUMBERING) adminDefs.push({key:'DOC_NO', defaultHeader:CONFIG.HEADERS.DOC_NO, exact:[CONFIG.HEADERS.DOC_NO, 'SỐ GGT'], partial:['số giấy ggt', 'số ggt']});
+
   const cols = {};
   const claimedAdminCols = [];
 
@@ -1243,7 +1341,14 @@ function findColByExactOrPartial_(headers, exactCandidates, partialCandidates, e
 /**
  * Ghi kết quả thành công và thông tin đối soát vào đúng các cột quản trị trong Sheet.
  */
-function writeSuccess_(sheet, row, cols, pdfUrl, taxResult) {
+function writePendingApproval_(sheet, row, cols, taxResult) {
+  sheet.getRange(row, cols.STATUS).setValue('Chờ duyệt');
+  if (cols.TIME) sheet.getRange(row, cols.TIME).setValue(Utilities.formatDate(new Date(), Session.getScriptTimeZone(), 'dd/MM/yyyy HH:mm:ss'));
+  if (cols.TAX_NAME && taxResult) sheet.getRange(row, cols.TAX_NAME).setValue(taxResult.name || '');
+  if (cols.TAX_NOTE) sheet.getRange(row, cols.TAX_NOTE).setValue(taxResult ? taxResult.matchNote : 'Đã qua kiểm tra dữ liệu; chờ duyệt');
+}
+
+function writeSuccess_(sheet, row, cols, pdfUrl, taxResult, docNumber) {
   const statusText = CONFIG.SEND_EMAIL ? 'Đã gửi' : 'Đã tạo PDF';
   if (cols.STATUS && cols.STATUS > 0) {
     sheet.getRange(row, cols.STATUS).setValue(statusText);
@@ -1257,6 +1362,7 @@ function writeSuccess_(sheet, row, cols, pdfUrl, taxResult) {
     );
   }
 
+  if (CONFIG.AUTO_NUMBERING && cols.DOC_NO && cols.DOC_NO > 0) sheet.getRange(row, cols.DOC_NO).setValue(docNumber || '');
   if (cols.TAX_NAME && cols.TAX_NAME > 0 && taxResult) {
     sheet.getRange(row, cols.TAX_NAME).setValue(taxResult.name || '');
   }
@@ -1333,24 +1439,47 @@ function getResponseSheet_() {
  * - Cài đặt Trigger tự động khi có Form Submit.
  * - Kiểm tra mẫu Doc, thư mục Drive và các cột trong Sheet.
  */
+function getPrivateConfig_(key) {
+  const localValue = CONFIG[key];
+  if (localValue && String(localValue).trim()) return String(localValue).trim();
+  const stores = [PropertiesService.getScriptProperties()];
+  try { stores.push(PropertiesService.getDocumentProperties()); } catch (ignore) {}
+  try { stores.push(PropertiesService.getUserProperties()); } catch (ignore) {}
+  for (let i = 0; i < stores.length; i++) {
+    const value = stores[i].getProperty(key);
+    if (value && String(value).trim()) return String(value).trim();
+  }
+  throw new Error('Chưa cấu hình ' + key + '. Điền ID vào CONFIG.' + key + ' hoặc lưu thuộc tính tương ứng trong Apps Script.');
+}
+
+function kiemTraCauHinhDrive() {
+  const result = {};
+  ['TEMPLATE_DOC_ID', 'OUTPUT_FOLDER_ID'].forEach(function (key) {
+    try { result[key] = 'OK (' + getPrivateConfig_(key).length + ' ký tự)'; }
+    catch (err) { result[key] = 'THIẾU'; }
+  });
+  Logger.log(JSON.stringify(result));
+  return result;
+}
+
 function setup() {
-  // 1. Xóa các trigger cũ trùng tên
+  // Kiểm tra cấu hình và sheet trước khi thay đổi trigger hiện có.
+  const sheet = getResponseSheet_();
+  getColumns_(sheet);
+  checkConfig_();
+
+  // Chỉ thay trigger sau khi mọi kiểm tra cấu hình đã qua.
   ScriptApp.getProjectTriggers().forEach(function (t) {
     if (t.getHandlerFunction() === 'handleFormSubmit') {
       ScriptApp.deleteTrigger(t);
     }
   });
 
-  // 2. Tạo trigger "onFormSubmit" mới
+  // Tạo trigger "onFormSubmit" mới
   ScriptApp.newTrigger('handleFormSubmit')
     .forSpreadsheet(SpreadsheetApp.getActive())
     .onFormSubmit()
     .create();
-
-  // 3. Kiểm tra cấu hình và thêm các cột quản trị nếu chưa có
-  const sheet = getResponseSheet_();
-  getColumns_(sheet);
-  checkConfig_();
 
   Logger.log('>>> Cài đặt thành công! Hệ thống sẵn sàng tự động tiếp nhận Form sinh viên.');
 }
@@ -1359,8 +1488,17 @@ function setup() {
  * Kiểm tra tính hợp lệ của cấu hình Drive, Doc mẫu và placeholder
  */
 function checkConfig_() {
-  DriveApp.getFolderById(CONFIG.OUTPUT_FOLDER_ID);
-  const text = DocumentApp.openById(CONFIG.TEMPLATE_DOC_ID).getBody().getText();
+  if (CONFIG.PDF_SHARING_MODE !== 'RESTRICTED' && CONFIG.PDF_SHARING_MODE !== 'ANYONE_WITH_LINK') {
+    throw new Error('PDF_SHARING_MODE chỉ nhận RESTRICTED hoặc ANYONE_WITH_LINK.');
+  }
+  if (!Number.isInteger(CONFIG.MAX_BATCH_ROWS) || CONFIG.MAX_BATCH_ROWS < 1 || CONFIG.MAX_BATCH_ROWS > 50) {
+    throw new Error('MAX_BATCH_ROWS phải là số nguyên từ 1 đến 50.');
+  }
+  if (!Number.isInteger(CONFIG.MAX_QUEUE_ROWS) || CONFIG.MAX_QUEUE_ROWS < 1 || CONFIG.MAX_QUEUE_ROWS > 500) throw new Error('MAX_QUEUE_ROWS phải từ 1 đến 500.');
+  if (CONFIG.AI_ENABLED && (CONFIG.AI_CONFIDENCE_THRESHOLD < 0 || CONFIG.AI_CONFIDENCE_THRESHOLD > 1 || CONFIG.AI_DICE_MIN > CONFIG.AI_DICE_MAX)) throw new Error('Cấu hình ngưỡng AI không hợp lệ.');
+  DriveApp.getFolderById(getPrivateConfig_('OUTPUT_FOLDER_ID'));
+  const text = DocumentApp.openById(getPrivateConfig_('TEMPLATE_DOC_ID')).getBody().getText();
+  if (CONFIG.AUTO_NUMBERING && text.indexOf('{{SO_GGT}}') === -1) throw new Error('Đã bật AUTO_NUMBERING nhưng Google Doc mẫu thiếu placeholder {{SO_GGT}}.');
 
   const requiredPlaceholders = ['{{HO_TEN}}', '{{MSSV}}', '{{EMAIL}}', '{{SDT}}', '{{CONG_TY}}', '{{VI_TRI}}'];
   const missing = requiredPlaceholders.filter(function (p) {
@@ -1410,8 +1548,6 @@ function testLastRow() {
   const lastRow = sheet.getLastRow();
   if (lastRow < 2) throw new Error('Sheet chưa có dữ liệu sinh viên nào.');
 
-  const cols = getColumns_(sheet);
-  if (cols.STATUS) sheet.getRange(lastRow, cols.STATUS).clearContent();
   processRow_(sheet, lastRow, true);
 }
 
@@ -1507,8 +1643,6 @@ function testRow(rowNumber) {
   if (isNaN(num) || num < 2 || num > sheet.getLastRow()) {
     throw new Error('Số dòng không hợp lệ: ' + rowNumber);
   }
-  const cols = getColumns_(sheet);
-  if (cols.STATUS) sheet.getRange(num, cols.STATUS).clearContent();
   processRow_(sheet, num, true);
 }
 
@@ -1595,8 +1729,8 @@ function promptForMultipleRows_(sheet, title, actionLabel) {
       }
       input = input.trim();
     } catch (e2) {
-      Logger.log('Không có UI context. Mặc định chọn dòng 2.');
-      return [2];
+      Logger.log('Hãy chạy thao tác từ menu trong Google Sheet để chọn dòng.');
+      return null;
     }
   }
 
@@ -1604,53 +1738,96 @@ function promptForMultipleRows_(sheet, title, actionLabel) {
   if (rowList.length === 0) {
     throw new Error('Không có dòng hợp lệ nào trong danh sách đã nhập: "' + input + '"');
   }
+  if (rowList.length > CONFIG.MAX_QUEUE_ROWS) {
+    throw new Error('Danh sách vượt quá ' + CONFIG.MAX_QUEUE_ROWS + ' dòng cho một yêu cầu.');
+  }
   return rowList;
 }
 
 /**
  * Kiểm thử nhiều dòng cùng lúc (có hộp thoại UI).
  * Hỗ trợ nhập dạng: "2, 5, 7-10, 15" để kiểm thử tất cả các dòng đó.
- * Mỗi dòng sẽ bỏ qua lọc ngày (chế độ test) và reset trạng thái trước khi chạy.
+ * Mỗi dòng bỏ qua lọc ngày (chế độ test), nhưng vẫn giữ chốt chống xử lý trùng.
  */
-function testMultipleRows() {
-  var sheet = getResponseSheet_();
-  var rowList = promptForMultipleRows_(sheet, 'Kiểm thử nhiều dòng GGT', 'kiểm thử');
-  if (!rowList) return;
-
-  var cols = getColumns_(sheet);
-  Logger.log('Bắt đầu kiểm thử ' + rowList.length + ' dòng: [' + rowList.join(', ') + ']');
-
-  var success = 0;
-  var fail = 0;
-  for (var i = 0; i < rowList.length; i++) {
-    var r = rowList[i];
-    try {
-      Logger.log('--- Kiểm thử dòng ' + r + ' (' + (i + 1) + '/' + rowList.length + ') ---');
-      // Reset trạng thái để cho phép chạy lại
-      if (cols.STATUS) sheet.getRange(r, cols.STATUS).clearContent();
-      processRow_(sheet, r, true);
-      success++;
-    } catch (err) {
-      Logger.log('Lỗi tại dòng ' + r + ': ' + err.message);
-      fail++;
-    }
-    // Nghỉ giãn cách giữa các dòng (tránh rate-limit API)
-    if (i < rowList.length - 1) {
-      Utilities.sleep(CONFIG.BATCH_SLEEP_MS);
-    }
-  }
-
-  Logger.log('=== Hoàn tất kiểm thử: ' + success + ' thành công, ' + fail + ' lỗi (tổng ' + rowList.length + ' dòng) ===');
-
-  // Hiển thị kết quả tóm tắt trên UI nếu có
+/** Lưu danh sách đã chọn và xử lý nhiều đợt nền, tiếp tục tự động sau mỗi phút. */
+function enqueueBatch_(sheet, rowList, isTestMode, label) {
+  const props = PropertiesService.getScriptProperties();
+  const key = 'GGT_BATCH_QUEUE';
+  if (props.getProperty(key)) throw new Error('Đang có một lô xử lý nền. Hãy đợi lô hiện tại hoàn tất.');
+  if (!rowList || !rowList.length) return;
+  if (rowList.length > CONFIG.MAX_QUEUE_ROWS) throw new Error('Tối đa ' + CONFIG.MAX_QUEUE_ROWS + ' dòng cho mỗi lô.');
+  const queue = {spreadsheetId: sheet.getParent().getId(), sheetName: sheet.getName(), rows: rowList,
+    index: 0, success: 0, failed: 0, testMode: Boolean(isTestMode), label: label || 'xử lý'};
+  props.setProperty(key, JSON.stringify(queue));
   try {
-    SpreadsheetApp.getUi().alert(
-      'Kết quả kiểm thử',
-      'Đã kiểm thử ' + rowList.length + ' dòng:\n• Thành công: ' + success + '\n• Lỗi: ' + fail +
-      '\n\nXem chi tiết tại Execution Log trong Apps Script.',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-  } catch (ignore) {}
+    ScriptApp.newTrigger('continueBatchQueue_').timeBased().everyMinutes(1).create();
+  } catch (err) { props.deleteProperty(key); throw err; }
+  continueBatchQueue_(); // chạy ngay đợt đầu; phần còn lại tự chạy nền
+}
+
+function continueBatchQueue_() {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(1000)) return;
+  const props = PropertiesService.getScriptProperties();
+  const key = 'GGT_BATCH_QUEUE';
+  const started = Date.now();
+  let queue;
+  try {
+    const raw = props.getProperty(key);
+    if (!raw) { removeQueueTriggers_(); return; }
+    queue = JSON.parse(raw);
+    const ss = SpreadsheetApp.openById(queue.spreadsheetId);
+    const sheet = ss.getSheetByName(queue.sheetName);
+    if (!sheet) throw new Error('Không tìm thấy sheet của lô đang chờ: ' + queue.sheetName);
+    let processed = 0;
+    while (queue.index < queue.rows.length && processed < CONFIG.MAX_BATCH_ROWS && Date.now() - started < CONFIG.BATCH_RUNTIME_BUDGET_MS) {
+      const row = Number(queue.rows[queue.index]);
+      try {
+        if (processRow_(sheet, row, queue.testMode)) queue.success++;
+        else queue.failed++;
+      } catch (err) {
+        queue.failed++;
+        Logger.log('Lỗi lô ' + queue.label + ', dòng ' + row + ': ' + err.message);
+      }
+      queue.index++;
+      processed++;
+      props.setProperty(key, JSON.stringify(queue)); // checkpoint để lần chạy sau tiếp tục đúng dòng
+      if (queue.index < queue.rows.length && processed < CONFIG.MAX_BATCH_ROWS) Utilities.sleep(CONFIG.BATCH_SLEEP_MS);
+    }
+    if (queue.index >= queue.rows.length) {
+      props.deleteProperty(key);
+      removeQueueTriggers_();
+      const message = 'Hoàn tất ' + queue.label + ': ' + queue.success + ' thành công, ' + queue.failed + ' lỗi/bỏ qua (' + queue.rows.length + ' dòng).';
+      Logger.log(message);
+      try { SpreadsheetApp.openById(queue.spreadsheetId).toast(message, 'GGT-CNTT', 10); } catch (ignore) {}
+    } else {
+      Logger.log('Đã xử lý ' + queue.index + '/' + queue.rows.length + ' dòng; phần còn lại sẽ tự chạy tiếp.');
+    }
+  } catch (err) {
+    if (queue) props.setProperty(key, JSON.stringify(queue));
+    Logger.log('Lỗi điều phối lô nền: ' + err.message);
+    throw err;
+  } finally { lock.releaseLock(); }
+}
+
+function cancelBatchQueue() {
+  const props = PropertiesService.getScriptProperties();
+  const exists = props.getProperty('GGT_BATCH_QUEUE');
+  props.deleteProperty('GGT_BATCH_QUEUE');
+  removeQueueTriggers_();
+  SpreadsheetApp.getActive().toast(exists ? 'Đã hủy phần còn lại của lô.' : 'Không có lô nào đang chờ.', 'GGT-CNTT', 5);
+}
+
+function removeQueueTriggers_() {
+  ScriptApp.getProjectTriggers().forEach(function (trigger) {
+    if (trigger.getHandlerFunction() === 'continueBatchQueue_') ScriptApp.deleteTrigger(trigger);
+  });
+}
+
+function testMultipleRows() {
+  const sheet = getResponseSheet_();
+  const rows = promptForMultipleRows_(sheet, 'Kiểm thử nhiều dòng GGT', 'kiểm thử');
+  if (rows) enqueueBatch_(sheet, rows, true, 'kiểm thử');
 }
 
 /**
@@ -1659,39 +1836,9 @@ function testMultipleRows() {
  * Khác với kiểm thử: hàm này tuân thủ lọc ngày và KHÔNG reset trạng thái đã hoàn tất.
  */
 function processBatchPrompt() {
-  var sheet = getResponseSheet_();
-  var rowList = promptForMultipleRows_(sheet, 'In PDF hàng loạt GGT', 'in PDF hàng loạt');
-  if (!rowList) return;
-
-  Logger.log('Bắt đầu in PDF hàng loạt cho ' + rowList.length + ' dòng: [' + rowList.join(', ') + ']');
-
-  var success = 0;
-  var fail = 0;
-  for (var i = 0; i < rowList.length; i++) {
-    var r = rowList[i];
-    try {
-      Logger.log('--- Xử lý dòng ' + r + ' (' + (i + 1) + '/' + rowList.length + ') ---');
-      processRow_(sheet, r);
-      success++;
-    } catch (err) {
-      Logger.log('Lỗi tại dòng ' + r + ': ' + err.message);
-      fail++;
-    }
-    if (i < rowList.length - 1) {
-      Utilities.sleep(CONFIG.BATCH_SLEEP_MS);
-    }
-  }
-
-  Logger.log('=== Hoàn tất in hàng loạt: ' + success + ' thành công, ' + fail + ' lỗi (tổng ' + rowList.length + ' dòng) ===');
-
-  try {
-    SpreadsheetApp.getUi().alert(
-      'Kết quả in PDF hàng loạt',
-      'Đã xử lý ' + rowList.length + ' dòng:\n• Thành công: ' + success + '\n• Lỗi: ' + fail +
-      '\n\nXem chi tiết tại Execution Log trong Apps Script.',
-      SpreadsheetApp.getUi().ButtonSet.OK
-    );
-  } catch (ignore) {}
+  const sheet = getResponseSheet_();
+  const rows = promptForMultipleRows_(sheet, 'In PDF hàng loạt GGT', 'in PDF hàng loạt');
+  if (rows) enqueueBatch_(sheet, rows, false, 'in PDF hàng loạt');
 }
 
 /**
@@ -1708,10 +1855,58 @@ function onOpen() {
       .addSeparator()
       .addItem('In PDF hàng loạt...', 'processBatchPrompt')
       .addItem('Xử lý lại các dòng lỗi / chờ', 'retryPending')
+      .addItem('Cập nhật Dashboard', 'refreshDashboard')
       .addSeparator()
       .addItem('Cài đặt hệ thống (Trigger)', 'setup')
       .addToUi();
   } catch (ignore) {}
+}
+
+function columnLetter_(column) {
+  let n = column, out = '';
+  while (n > 0) { const r = (n - 1) % 26; out = String.fromCharCode(65 + r) + out; n = Math.floor((n - 1) / 26); }
+  return out;
+}
+
+function refreshDashboard() {
+  const source = getResponseSheet_();
+  const cols = getColumns_(source);
+  const ss = source.getParent();
+  let dash = ss.getSheetByName('Dashboard GGT');
+  if (!dash) dash = ss.insertSheet('Dashboard GGT');
+  dash.clear();
+  const col = columnLetter_(cols.STATUS);
+  const sheetRef = "'" + source.getName().replace(/'/g, "''") + "'!";
+  const range = sheetRef + col + '2:' + col;
+  const totalCol = columnLetter_(cols.HO_TEN);
+  const rows = [
+    ['BẢNG TỔNG HỢP GGT', 'Giá trị'],
+    ['Tổng số hồ sơ', '=COUNTA(' + sheetRef + totalCol + '2:' + totalCol + ')'],
+    ['Đã tạo PDF', '=COUNTIF(' + range + ',"Đã tạo PDF")+COUNTIF(' + range + ',"Đã gửi")'],
+    ['Đang xử lý', '=COUNTIF(' + range + ',"Processing")'],
+    ['Chờ duyệt', '=COUNTIF(' + range + ',"Chờ duyệt")'],
+    ['Lỗi', '=COUNTIF(' + range + ',"Lỗi:*")'],
+    ['Cập nhật lúc', new Date()]
+  ];
+  dash.getRange(1,1,rows.length,2).setValues(rows);
+  dash.getRange(2,2,5,1).setNumberFormat('0');
+  dash.getRange(7,2).setNumberFormat('dd/MM/yyyy HH:mm:ss');
+  dash.getRange(1,1,1,2).setFontWeight('bold').setBackground('#d9ead3');
+  dash.setFrozenRows(1);
+  dash.autoResizeColumns(1,2);
+  ss.setActiveSheet(dash);
+  ss.toast('Đã cập nhật Dashboard GGT.', 'GGT-CNTT', 5);
+}
+
+function approveSelectedRow() {
+  const sheet = getResponseSheet_();
+  const row = sheet.getActiveRange().getRow();
+  if (row < 2) throw new Error('Hãy chọn một dòng hồ sơ, không chọn dòng tiêu đề.');
+  const cols = getColumns_(sheet);
+  const status = String(sheet.getRange(row, cols.STATUS).getDisplayValue() || '').trim();
+  if (status !== 'Chờ duyệt') throw new Error('Dòng đang chọn không ở trạng thái Chờ duyệt.');
+  processRow_(sheet, row, false, true);
+  sheet.getParent().toast('Đã xử lý thao tác duyệt dòng ' + row + '.', 'GGT-CNTT', 5);
 }
 
 /**
@@ -1756,24 +1951,15 @@ function retryPending() {
   const sheet = getResponseSheet_();
   const cols = getColumns_(sheet);
   const last = sheet.getLastRow();
-  let count = 0;
-
-  for (let r = 2; r <= last; r++) {
-    const status = String(sheet.getRange(r, cols.STATUS).getValue() || '').trim();
-    // Bỏ qua các dòng đã hoàn tất hoặc đã được giảng viên phê duyệt
-    if (isAlreadyProcessed_(status)) continue;
-
-    // Chỉ xử lý các dòng trống, dòng báo lỗi hoặc dòng Processing cần chạy lại
-    if (status === '' || status.indexOf('Lỗi') === 0 || status.indexOf('Processing') === 0) {
-      Logger.log('Đang xử lý lại dòng ' + r + '...');
-      processRow_(sheet, r);
-      count++;
-      // Nghỉ an toàn để giữ kết nối API ổn định (tránh lỗi 429)
-      Utilities.sleep(CONFIG.BATCH_SLEEP_MS);
-    }
+  if (last < 2) { SpreadsheetApp.getUi().alert('Sheet chưa có hồ sơ cần xử lý.'); return; }
+  const statuses = sheet.getRange(2, cols.STATUS, last - 1, 1).getDisplayValues();
+  const rows = [];
+  for (let i = 0; i < statuses.length && rows.length < CONFIG.MAX_QUEUE_ROWS; i++) {
+    const status = String(statuses[i][0] || '').trim();
+    if (!isAlreadyProcessed_(status) && (status === '' || /^lỗi/i.test(status) || /^processing/i.test(status))) rows.push(i + 2);
   }
-
-  Logger.log('Đã hoàn tất xử lý lại ' + count + ' dòng.');
+  if (!rows.length) { SpreadsheetApp.getUi().alert('Không có dòng lỗi hoặc đang chờ cần xử lý.'); return; }
+  enqueueBatch_(sheet, rows, false, 'xử lý lại');
 }
 
 /**
@@ -1782,13 +1968,10 @@ function retryPending() {
 function processBatch(startRow, endRow) {
   const sheet = getResponseSheet_();
   const last = sheet.getLastRow();
-  const start = Math.max(startRow || 2, 2);
-  const end = Math.min(endRow || last, last);
-
-  Logger.log('Bắt đầu xử lý hàng loạt từ dòng ' + start + ' đến dòng ' + end);
-  for (let r = start; r <= end; r++) {
-    processRow_(sheet, r);
-    Utilities.sleep(CONFIG.BATCH_SLEEP_MS);
-  }
-  Logger.log('Hoàn thành xử lý hàng loạt.');
+  const start = Math.max(Number(startRow) || 2, 2);
+  const end = Math.min(Number(endRow) || last, last);
+  if (end < start) throw new Error('Khoảng dòng không hợp lệ.');
+  const rows = [];
+  for (let r = start; r <= end; r++) rows.push(r);
+  enqueueBatch_(sheet, rows, false, 'xử lý theo khoảng dòng');
 }
