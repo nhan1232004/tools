@@ -296,15 +296,33 @@ def replace_par(doc, startswith, new_text, bold=False, nth=0):
 
 # --- Tóm tắt tiếng Việt ---
 replace_par(doc, "Hệ thống đã được kiểm nghiệm thực tế trên 92 hồ sơ",
-            "Hệ thống đã được vận hành thực tế trên toàn bộ 361 hồ sơ đăng ký cấp Giấy giới thiệu "
-            "đang lưu trong Google Sheet của Khoa CNTT. Kết quả: 330 hồ sơ được cấp Giấy giới thiệu "
-            "PDF tự động (91,41%) và 31 hồ sơ bị hệ thống chặn kèm nguyên nhân cụ thể (8,59%) — "
-            "trong đó có 5 trường hợp mã số thuế đúng nhưng tên doanh nghiệp do sinh viên khai khác "
-            "với tên đăng ký của cơ quan Thuế, nếu cấp giấy sẽ sai đơn vị tiếp nhận. Bộ kiểm thử tự "
-            "động gồm 93 ca đều đạt. Tổng thời gian máy chạy cho cả 361 hồ sơ là 82,7 phút "
-            "(tương đương 13,7 giây/hồ sơ), tiết kiệm khoảng 95,4% khối lượng thời gian so với cách "
-            "làm thủ công; toàn bộ 330 tệp PDF được lưu tập trung trên Google Drive và liên kết mở "
-            "tức thì đã được ghi trực tiếp vào cột “LINK PDF GGT” của Sheet.")
+            "Theo bản tổng hợp vận hành ngày 17–18/10/2026, hệ thống đã xử lý 361 hồ sơ: 330 hồ sơ "
+            "được cấp Giấy giới thiệu PDF tự động (91,41%) và 31 hồ sơ bị chặn kèm nguyên nhân cụ thể "
+            "(8,59%) — trong đó có 5 trường hợp mã số thuế đúng nhưng tên doanh nghiệp do sinh viên "
+            "khai khác với tên đăng ký của cơ quan Thuế. Bộ kiểm thử tự động gồm 93 ca đều đạt. Tổng "
+            "thời gian máy chạy cho lô 361 hồ sơ là 82,7 phút (13,7 giây/hồ sơ), tiết kiệm khoảng "
+            "95,4% so với ước lượng thao tác thủ công; theo số liệu báo cáo, 330 tệp PDF được lưu "
+            "trên Google Drive và liên kết được ghi vào cột “LINK PDF GGT” của Sheet.")
+# Remove obsolete continuation fragments from the original replacement block if present.
+
+replace_par(doc, "Theo số liệu thực tế lưu trong bảng tính của Khoa Công nghệ Thông tin",
+            "Tệp Excel hiện có của bảng tính Khoa CNTT chứa 999 hồ sơ và 20 cột. Code.gs đang cấu hình "
+            "FILTER_START_DATE = 2026-08-01, nên chỉ nhận xử lý hồ sơ từ ngày 01/08/2026; không có "
+            "căn cứ để mô tả 361 hồ sơ báo cáo như toàn bộ dữ liệu của bảng tính. Kết quả 361 hồ sơ "
+            "(330 PDF, 31 hồ sơ bị chặn) được ghi rõ là bản tổng hợp của đợt vận hành 17–18/10/2026.")
+replace_par(doc, "Báo cáo đề tài đã đạt được 5 kết quả định lượng cốt lõi sau",
+            "Báo cáo đề tài đã đạt được 5 kết quả định lượng cốt lõi sau")
+replace_par(doc, "Hoàn thành (361/361 hồ sơ)", "Hoàn thành trên lô dữ liệu được báo cáo (361 hồ sơ)")
+replace_par(doc, "206/361 giá trị MSSV và 42/361 giá trị MST bị ảnh hưởng",
+            "206/361 giá trị MSSV và 42/361 giá trị MST bị ảnh hưởng trong tập hồ sơ thực nghiệm")
+# Shorten/qualify claims in the abstract and conclusion.
+replace_par(doc, "Hệ thống đã được vận hành thực tế trên toàn bộ 361 hồ sơ đăng ký cấp Giấy giới thiệu",
+            "Theo bản tổng hợp vận hành ngày 17–18/10/2026, hệ thống đã xử lý 361 hồ sơ")
+replace_par(doc, "Vận hành thực tế trên toàn bộ 361 hồ sơ trong Sheet của Khoa",
+            "Xử lý lô 361 hồ sơ trong bản tổng hợp vận hành")
+replace_par(doc, "361 hồ sơ đăng ký cấp giấy giới thiệu thực tập của sinh viên các học phần",
+            "361 hồ sơ trong bản tổng hợp vận hành được dùng để đánh giá kết quả của hệ thống")
+
 replace_par(doc, "Hệ thống nhận dữ liệu từ Google Form, chuẩn hóa thông tin",
             "Hệ thống nhận dữ liệu từ Google Form, tự động chuẩn hóa các giá trị bị bảng tính biến "
             "dạng (MSSV, số điện thoại, mã số thuế dạng số khoa học hoặc mất số 0 đầu), kiểm chứng "
@@ -457,17 +475,14 @@ def replace_par_last(doc, startswith, new_text):
     return True
 
 
-# Đánh số lại 2 hình Chương 2 theo thứ tự xuất hiện: sơ đồ tổ chức (mục 2.2) in trước
-# quy trình thủ công (mục 2.4) nên phải là Hình 2.1, và ngược lại.
+# Hình 2.1 là quy trình cấp giấy; bỏ hình cơ cấu AI Lab vì đơn vị thực tập nay là công ty.
 _h2 = [p for p in doc.paragraphs if p.text.strip().startswith("Hình 2.")]
 _org = [p for p in _h2 if "Sơ đồ cơ cấu" in p.text]
 _proc = [p for p in _h2 if "Quy trình cấp giấy giới thiệu" in p.text]
-if _org and _proc:
-    set_par_text(_org[-1], "Hình 2.1: Sơ đồ cơ cấu tổ chức và vị trí thực tập tại "
-                         "Phòng Thí nghiệm AI Lab")
-    set_par_text(_proc[-1], "Hình 2.2: Quy trình cấp giấy giới thiệu thực tập trước khi "
-                            "tự động hóa")
-    print("Đã đánh số lại Hình 2.1 / Hình 2.2 theo thứ tự xuất hiện.")
+if _org:
+    _org[-1]._p.getparent().remove(_org[-1]._p)
+if _proc:
+    set_par_text(_proc[-1], "Hình 2.1: Quy trình cấp giấy giới thiệu thực tập trước khi tự động hóa")
 
 # Đánh số lại hình Chương 4 theo đúng thứ tự xuất hiện:
 # đối soát tên (mục 4.5) = Hình 4.3, máy trạng thái (mục 4.7) = Hình 4.4
@@ -525,6 +540,45 @@ insert_pars(doc, ref, [
 fig_block(doc, ref, "hinh_4_5_hang_doi_xu_ly_nen.png",
           "Hình 4.5: Vòng đời của một lô xử lý nền trong hệ thống")
 print("Đã bổ sung mục 4.7.2 và Hình 4.5.")
+
+# Cập nhật sơ đồ tổ chức: thay hình AI Lab bằng sơ đồ đơn vị và phạm vi nhiệm vụ thực tập.
+from PIL import Image, ImageDraw, ImageFont
+
+def make_company_diagram(path):
+    image = Image.new("RGB", (1400, 480), "white")
+    draw = ImageDraw.Draw(image)
+    regular, bold = ImageFont.load_default(size=28), ImageFont.load_default(size=32)
+    navy, light = "#1F4E79", "#EAF1F8"
+    nodes = [(350,25,1050,125,"CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO\nTHẾ HỆ MỚI",bold,navy,"white"),
+             (350,190,1050,290,"Nhóm phát triển phần mềm / nhiệm vụ thực tập",regular,light,navy),
+             (350,355,1050,455,"Sinh viên thực tập • GGT-CNTT Auto",regular,light,navy)]
+    for x1,y1,x2,y2,label,face,fill,color in nodes:
+        draw.rounded_rectangle((x1,y1,x2,y2),radius=18,fill=fill,outline=navy,width=3)
+        draw.multiline_text(((x1+x2)//2,(y1+y2)//2),label,font=face,fill=color,anchor="mm",align="center",spacing=8)
+    for y1,y2 in [(125,190),(290,355)]:
+        draw.line((700,y1,700,y2-12),fill="#6B7280",width=4)
+        draw.polygon([(690,y2-20),(710,y2-20),(700,y2-4)],fill="#6B7280")
+    image.save(path)
+
+org_diagram = os.path.join(FIG, "hinh_2_x_so_do_ai_lab.png")
+make_company_diagram(org_diagram)
+for item in list(body_items(doc)):
+    if item[0] == "p" and "Hình 2.2: Sơ đồ cơ cấu tổ chức" in item[1].text:
+        old_caption = item[1]
+        old_caption._p.getparent().remove(old_caption._p)
+        prev = old_caption._p.getprevious()
+        if prev is not None and prev.tag == w("tbl"):
+            prev.getparent().remove(prev)
+        target = next((p._p for p in doc.paragraphs if p.text.startswith("2.2 Môi trường làm việc")), None)
+        if target is not None:
+            fig_block(doc, target, "hinh_2_x_so_do_ai_lab.png", "Hình 2.2: Sơ đồ đơn vị thực tập và phạm vi nhiệm vụ dự án", width_cm=15.0)
+        break
+for p in doc.paragraphs:
+    if "AI Lab" in p.text or "Phòng Thí nghiệm" in p.text:
+        cleaned = p.text.replace("Phòng Thí nghiệm Trí tuệ Nhân tạo (Artificial Intelligence Laboratory - AI Lab)", "CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI")
+        cleaned = cleaned.replace("Phòng Thí nghiệm được thành lập với sứ mệnh nghiên cứu khoa học cơ bản, nghiên cứu ứng dụng và chuyển giao công nghệ tiên tiến trong các lĩnh vực Trí tuệ Nhân tạo, Xử lý Ngôn ngữ Tự nhiên (NLP), Thị giác Máy tính (Computer Vision), Dữ liệu lớn (Big Data) và Chuyển đổi số giáo dục. Về quy mô nhân sự, AI Lab quy tụ đội ngũ giảng viên, nghiên cứu viên có trình độ cao (Tiến sĩ, Thạc sĩ) cùng các nhóm sinh viên tài năng tham gia các đề tài nghiên cứu trọng điểm và các dự án tự động hóa dịch vụ học vụ phục vụ nhà trường. Các sản phẩm chính của phòng lab bao gồm: các mô hình nhận dạng tiếng Việt, chatbot tư vấn học vụ thông minh, hệ thống kiểm tra và xác thực dữ liệu sinh viên, và các giải pháp tự động hóa hành chính trong môi trường giáo dục đại học.", "Thông tin địa chỉ, quy mô nhân sự, lĩnh vực hoạt động và sản phẩm cụ thể của doanh nghiệp chưa được đưa vào do chưa có tài liệu xác nhận.")
+        cleaned = cleaned.replace("Phòng Thí nghiệm AI Lab", "CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI").replace("AI Lab - Khoa CNTT", "CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI")
+        set_par_text(p, cleaned)
 
 # 4.8 mô-đun mở rộng — cập nhật trạng thái
 replace_par(doc, "Đặc quyền tối thiểu: script chỉ xin những quyền OAuth cần thiết",
@@ -622,8 +676,7 @@ CH5 = [
                                "Google Docs (văn bản mẫu), Google Drive (lưu trữ PDF)"],
         ["Môi trường thực thi", "Google Apps Script (V8), script gắn với bảng tính; trigger "
                                 "onFormSubmit cho từng lượt nộp và trigger thời gian 1 phút cho hàng đợi nền"],
-        ["Bảng tính dữ liệu", "Sheet “Form Responses 1”: 20 cột, 361 dòng dữ liệu thực tế; hệ thống "
-                              "tự nhận diện cột theo từ khóa"],
+        ["Bảng tính dữ liệu", "Sheet “Form Responses 1”: 20 cột, 999 hồ sơ trong tệp Excel hiện có; phạm vi xử lý theo cấu hình từ 01/08/2026"],
         ["Văn bản mẫu", "Google Doc chuyển từ GGT_mau_placeholder.docx, 6 placeholder bắt buộc và "
                         "8 placeholder mở rộng ({{SO_GGT}}, {{MST}}, {{DIA_CHI_CTY}}, {{NGAY}}…)"],
         ["Thư mục lưu PDF", "Google Drive, mã thư mục 1RgRcem14hvJdTa_Cq7As02RnYS8idFQ6, cấu hình "
@@ -735,10 +788,11 @@ insert_pars(doc, ref6, CH5C)
 
 CH5D = [
     ("h2", "5.5 Kết quả thực nghiệm trên dữ liệu thật của Khoa"),
-    ("body", "Đợt thực nghiệm được thực hiện trên toàn bộ 361 hồ sơ đang có trong Sheet của Khoa "
-             "(đăng ký trải từ năm 2023 đến tháng 10/2026), tương ứng 361 dòng được hệ thống cập "
-             "nhật đầy đủ trạng thái, liên kết PDF, thời gian xử lý và kết quả đối soát. Kết quả "
-             "tổng hợp được trình bày trong Bảng 5.4 và Hình 5.6. Các biểu đồ trong chương này "
+    ("body", "Đợt thực nghiệm được thực hiện trên 361 hồ sơ được tổng hợp trong lần chạy ngày 17–18/10/2026; "
+             "tệp Excel hiện có chứa 999 hồ sơ tổng thể, nhưng cấu hình Code.gs chỉ xử lý hồ sơ từ "
+             "01/08/2026. Các số liệu dưới đây được trình bày theo báo cáo chạy đã có, không suy diễn "
+             "rằng toàn bộ 999 hồ sơ đều đã được xử lý. Kết quả tổng hợp được trình bày trong "
+             "Bảng 5.4 và Hình 5.6. Các biểu đồ trong chương này "
              "được sinh trực tiếp từ tệp Sheet bằng script figures/make_figures.py, không nhập số "
              "liệu bằng tay, nên có thể chạy lại bất cứ lúc nào khi Sheet thay đổi."),
     ("caption_table", "Bảng 5.4: Kết quả xử lý 361 hồ sơ thực tế"),
@@ -750,7 +804,7 @@ CH5D = [
          "Cột “KẾT QUẢ ĐỐI SOÁT MST” ghi chi tiết để sinh viên sửa và chạy lại"],
         ["Đang xử lý", "0", "0%", "Không còn hồ sơ nào ở trạng thái Processing"],
         ["Chờ duyệt", "0", "0%", "REQUIRE_APPROVAL đang tắt trong đợt này"],
-        ["Tổng cộng", "361", "100%", "Dữ liệu lấy trực tiếp từ Sheet ngày 18/10/2026"],
+        ["Tổng cộng", "361", "100%", "Bản tổng hợp vận hành 17–18/10/2026"],
     ], [3300, 1200, 1100, 3187]),
     ("body", "Tỷ lệ cấp giấy tự động thành công đạt 91,41%. Đáng chú ý, phần lớn trong 31 hồ sơ bị "
              "chặn không phải lỗi kỹ thuật của hệ thống mà là dữ liệu đầu vào không hợp lệ do sinh "
@@ -956,17 +1010,56 @@ replace_par(doc, "Bộ dữ liệu thử có cỡ mẫu hạn chế",
             "Mốc so sánh thời gian thủ công (5 phút/hồ sơ) là ước lượng từ khảo sát Văn phòng Khoa, "
             "không phải số đo bấm giờ; 31 hồ sơ lỗi cũng chưa được xác nhận lại với từng sinh viên "
             "về việc đã sửa hay chưa.")
+replace_par(doc, "Lời cảm ơn đến Phòng Thí nghiệm Trí tuệ Nhân tạo",
+            "Lời cảm ơn đến CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI và ThS. Dương Hữu Phúc.")
 replace_par(doc, "Mở rộng AI: trích xuất thông tin từ văn bản tự do",
             "Bật và đánh giá lớp AI: chạy AI_ENABLED = true trên một tập con dữ liệu đã gán nhãn "
             "để đo chính xác của vùng xám; đồng thời mở rộng trích xuất thông tin từ văn bản tự do "
             "(email nhận việc, thư xác nhận của doanh nghiệp) và tự soạn phản hồi lỗi cho sinh viên.")
 
+# Cập nhật đơn vị tiếp nhận và thông tin thực tập theo yêu cầu mới; chỉ thay các đoạn đã xác định.
+replace_par(doc, "Đơn vị tiếp nhận thực tập là Phòng Thí nghiệm Trí tuệ Nhân tạo",
+    "Đơn vị tiếp nhận thực tập là CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI. "
+    "Sinh viên tham gia nhóm phát triển giải pháp tự động hóa quy trình cấp Giấy giới thiệu thực tập "
+    "cho Khoa Công nghệ Thông tin, Trường Đại học Tôn Đức Thắng. Nội dung thực tập tập trung vào "
+    "phân tích quy trình nghiệp vụ, thiết kế luồng xử lý trên Google Workspace, xây dựng và kiểm thử "
+    "mã nguồn Google Apps Script, xử lý dữ liệu biểu mẫu, kiểm chứng mã số thuế và đối soát tên "
+    "doanh nghiệp, xuất PDF và tổng hợp kết quả vận hành. Đề tài được thực hiện cùng sự hướng dẫn "
+    "của ThS. Dương Hữu Phúc; thông tin địa chỉ, quy mô và lĩnh vực kinh doanh của doanh nghiệp "
+    "không được bổ sung khi chưa có tài liệu xác nhận.")
+replace_par(doc, "Theo số liệu khảo sát thực tế tại Văn phòng Khoa Công nghệ Thông tin",
+    "Theo tệp Excel hiện có của bảng tính Khoa Công nghệ Thông tin (999 hồ sơ, 20 cột) và cấu hình hiện tại trong Code.gs (FILTER_START_DATE = 2026-08-01), hệ thống chỉ nhận xử lý hồ sơ từ ngày 01/08/2026. Bộ số liệu kết quả 361 hồ sơ (330 PDF, 31 bị chặn) trong báo cáo là bản tổng hợp vận hành được cung cấp; không coi là toàn bộ 999 hồ sơ của bảng tính.")
+replace_par(doc, "Tại AI Lab, sinh viên được bố trí làm việc",
+    "Trong thời gian thực tập tại CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI, sinh viên tham gia "
+    "nhóm dự án theo tiến độ công việc được giao. Hoạt động chuyên môn gồm khảo sát yêu cầu, cập "
+    "nhật mã nguồn qua Git/GitHub, triển khai từng chức năng, kiểm tra bằng bộ test và đối chiếu "
+    "kết quả với dữ liệu thực tế. Phạm vi đề tài gắn với quy trình cấp Giấy giới thiệu thực tập "
+    "của Khoa CNTT; đơn vị tiếp nhận thực tập là doanh nghiệp nêu trên.")
+replace_par(doc, "• Vị trí thực tập: Thực tập sinh Kỹ thuật Phần mềm",
+    "• Vị trí thực tập: Thực tập sinh Kỹ thuật Phần mềm tại CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI.\n"
+    "• Cán bộ hướng dẫn trực tiếp: ThS. Dương Hữu Phúc.\n"
+    "• Thời gian thực tập: Từ ngày 25/08/2026 đến ngày 19/10/2026 (134 giờ theo hồ sơ hiện có).\n"
+    "• Nhiệm vụ chính: Phân tích, phát triển và kiểm thử hệ thống GGT-CNTT Auto theo tiến độ mã nguồn Code.gs hiện tại.")
+for table in doc.tables:
+    for row in table.rows:
+        for cell in row.cells:
+            if "AI Lab" in cell.text or "Phòng Thí nghiệm" in cell.text:
+                fill_cell(cell, cell.text.replace("Làm quen đơn vị thực tập (AI Lab)", "Làm quen đơn vị thực tập tại doanh nghiệp").replace("AI Lab", "CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI").replace("Phòng Thí nghiệm", "CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI"), size=10.5)
+replace_par(doc, "Em xin gửi lời cảm ơn đến Phòng Thí nghiệm Trí tuệ Nhân tạo",
+    "Em xin gửi lời cảm ơn đến CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI và ThS. Dương Hữu Phúc "
+    "đã tạo điều kiện, hướng dẫn và hỗ trợ em trong quá trình thực tập, hoàn thành đề tài xây dựng "
+    "hệ thống GGT-CNTT Auto.")
+replace_par(doc, "Qua quá trình thực hiện học phần Kiến tập công nghiệp với đề tài xây dựng hệ thống GGT-CNTT Auto tại Phòng Thí nghiệm AI Lab",
+    "Qua quá trình thực hiện học phần Kiến tập công nghiệp với đề tài xây dựng hệ thống GGT-CNTT Auto "
+    "tại CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI")
+replace_par(doc, "Nhật ký thực tập thực tế của sinh viên Nguyễn Hữu Nhân (522H0045) tại Phòng Thí nghiệm AI Lab:",
+    "Nhật ký thực tập thực tế của sinh viên Nguyễn Hữu Nhân (522H0045) tại CÔNG TY CỔ PHẦN TRÍ TUỆ NHÂN TẠO THẾ HỆ MỚI:")
+
 # --------------------------------------------------------------------------- #
 #  6. Danh mục hình vẽ / bảng biểu
 # --------------------------------------------------------------------------- #
 FIGS = [
-    "Hình 2.1: Sơ đồ cơ cấu tổ chức và vị trí thực tập tại Phòng Thí nghiệm AI Lab",
-    "Hình 2.2: Quy trình cấp giấy giới thiệu thực tập trước khi tự động hóa",
+    "Hình 2.1: Quy trình cấp giấy giới thiệu thực tập trước khi tự động hóa",
     "Hình 3.1: Kiến trúc dịch vụ của Google Apps Script",
     "Hình 3.2: Cơ chế giới hạn tốc độ và thử lại lũy thừa (exponential backoff)",
     "Hình 3.3: Mô hình Transformer và Scaled Dot-Product Attention",
