@@ -11,8 +11,12 @@ Hệ thống tự động hóa toàn diện quy trình cấp Giấy giới thi�
    - Đối chiếu tên viết tắt, tên tiếng nước ngoài và chuẩn hóa các danh xưng viết tắt (`CTY`, `TNHH`, `MTV`, `CP`, `JSC`...).
    - Nếu sai MST hoặc tên công ty khác biệt rõ rệt -> ghi nhận không hợp lệ, không xuất giấy.
 5. **Lọc thời gian nộp đơn**: Tự động lọc chỉ xử lý các yêu cầu bắt đầu từ đầu tháng **08/2026** tới mới nhất hiện nay (`FILTER_START_DATE: '2026-08-01'`).
-6. Tự động điền dữ liệu vào mẫu Google Doc -> Xuất file **PDF (vừa khít đúng 1 trang)** -> Lưu vào Google Drive (tự động phân quyền xem qua liên kết).
-7. **Ghi link PDF và kết quả trực tiếp vào Google Sheet**: Không gửi email cho giảng viên (`SEND_EMAIL: false`), giảng viên chỉ cần bấm vào link trong cột `Link PDF` trên Sheet để mở xem ngay file PDF.
+6. Tự động điền dữ liệu vào mẫu Google Doc -> Xuất file **PDF (vừa khít đúng 1 trang, giữ nguyên khoảng trống ký tên)** -> Lưu vào Google Drive. Mặc định `PDF_SHARING_MODE: 'RESTRICTED'` (chỉ tài khoản có quyền với thư mục mới xem được); chỉ đổi sang `ANYONE_WITH_LINK` khi đơn vị cho phép.
+7. **Ghi link PDF và kết quả trực tiếp vào Google Sheet**: Không gửi email cho giảng viên (`SEND_EMAIL: false`), giảng viên chỉ cần bấm vào link trong cột `LINK PDF GGT` trên Sheet để mở xem ngay file PDF.
+8. **Chạy hàng loạt bằng hàng đợi nền**: mỗi đợt tối đa 25 dòng / 240 giây, tiến độ được checkpoint và tự tiếp tục nhờ trigger 1 phút (`enqueueBatch_`, `continueBatchQueue_`, `cancelBatchQueue`).
+9. **Dashboard và duyệt hồ sơ**: `refreshDashboard()` tổng hợp số liệu bằng công thức COUNTIF; `approveSelectedRow()` duyệt hồ sơ đang ở trạng thái “Chờ duyệt” khi bật `REQUIRE_APPROVAL`.
+
+> **Lớp AI (Gemini) là tùy chọn và mặc định tắt** (`AI_ENABLED: false`). Hệ thống chỉ gọi AI cho vùng xám `0,30 ≤ Dice ≤ 0,50`, yêu cầu độ tin cậy ≥ 0,90 và chỉ gửi tên doanh nghiệp — không gửi dữ liệu cá nhân của sinh viên.
 
 ---
 
@@ -21,14 +25,21 @@ Hệ thống tự động hóa toàn diện quy trình cấp Giấy giới thi�
 ```
 d:/TSNN_KTCN/tool/
 ├── yêu cầu tool.docx                              # Tài liệu bài toán & yêu cầu nghiệp vụ
-├── Cấp Giấy Giới Thiệu Thực Tập (Responses).xlsx # Sheet thực tế của Khoa (16 cột)
+├── Cấp Giấy Giới Thiệu Thực Tập (Responses).xlsx # Sheet thực tế của Khoa (20 cột, 361 hồ sơ)
+├── BaoCao_KTCN_GGT_CNTT_Auto_522H0045.docx      # Báo cáo KTCN (bản cập nhật theo Code.gs mới)
+├── figures/
+│   ├── make_figures.py                            # Sinh biểu đồ từ dữ liệu Sheet thực tế
+│   └── *.png                                      # Hình 2.1 … Hình 5.10
+├── tools/
+│   └── update_report.py                           # Dựng lại báo cáo từ template của Khoa
 └── ggt-cntt-auto/
     ├── README.md                                  # Hướng dẫn chi tiết hệ thống
     ├── templates/
     │   ├── GGT_mau_goc.docx                       # Mẫu Word hành chính chuẩn của Khoa
     │   └── GGT_mau_placeholder.docx               # Mẫu Word đã gắn sẵn các placeholder
     └── sources/
-        └── Code.gs                                # Mã nguồn Google Apps Script hoàn chỉnh
+        ├── Code.gs                                # Mã nguồn Google Apps Script hoàn chỉnh (1.977 dòng)
+        └── test_suite.js                          # 93 ca kiểm thử tự động (Node.js)
 ```
 
 ---
@@ -48,8 +59,10 @@ d:/TSNN_KTCN/tool/
 | 7 | Mã số thuế (Tùy chọn) | `{{MST}}` | Tự động thay thế nếu có trong mẫu |
 | 8 | Học phần (Tùy chọn) | `{{HOC_PHAN}}` | KTCN hoặc TSNN |
 | 9 | Địa chỉ công ty (Tùy chọn) | `{{DIA_CHI_CTY}}` | Địa chỉ theo giấy phép Thuế |
+| 10 | Số giấy GGT (Tùy chọn) | `{{SO_GGT}}` | Chỉ dùng khi bật `AUTO_NUMBERING` |
+| 11 | Ngày / Tháng / Năm | `{{NGAY}}`, `{{THANG}}`, `{{NAM}}` | Tự động lấy theo ngày chạy |
 
-> *Lưu ý*: Phần `Số: ....-GGT-CNTT` và ngày ký trong mẫu được giữ nguyên để giảng viên/văn phòng Khoa cấp số và ký duyệt.
+> *Lưu ý*: Mặc định `AUTO_NUMBERING: false` — phần `Số: ....-GGT-CNTT` và ngày ký trong mẫu được giữ nguyên để giảng viên/văn phòng Khoa cấp số và ký duyệt.
 
 ---
 
@@ -96,10 +109,18 @@ Theo yêu cầu nghiệp vụ bắt buộc:
    const CONFIG = {
      TEMPLATE_DOC_ID: 'DÁN_DOC_ID_VÀO_ĐÂY',
      OUTPUT_FOLDER_ID: 'DÁN_FOLDER_ID_VÀO_ĐÂY',
-     SEND_EMAIL: false,             // Không gửi email cho giảng viên
-     FILTER_START_DATE: '2026-08-01', // Chỉ xử lý yêu cầu từ đầu tháng 8/2026 tới nay
-     LECTURER_EMAIL: 'email_giangvien@tdtu.edu.vn',
-     ...
+     SEND_EMAIL: false,               // Không gửi email cho giảng viên
+     PDF_SHARING_MODE: 'RESTRICTED',  // Không mở công khai theo liên kết
+     MAX_BATCH_ROWS: 25,              // 25 dòng mỗi đợt nền
+     MAX_QUEUE_ROWS: 500,             // Tối đa 500 dòng mỗi lô
+     BATCH_RUNTIME_BUDGET_MS: 240000, // Dừng đợt trước mốc 6 phút của GAS
+     AI_ENABLED: false,               // Lớp Gemini tùy chọn, mặc định tắt
+     AUTO_NUMBERING: false,           // Cấp số GGT tự động
+     REQUIRE_APPROVAL: false,         // Quy trình “Chờ duyệt”
+     FILTER_START_DATE: '2026-08-01', // Mốc lọc đơn theo học kỳ
+     TAX_API_URL: 'https://api.xinvoice.vn/gdt-api/tax-payer/',
+     VERIFY_TAX_CODE: true,
+     BATCH_SLEEP_MS: 3200
    };
    ```
 5. Nhấn **Lưu** (Ctrl + S).
@@ -127,8 +148,39 @@ Theo yêu cầu nghiệp vụ bắt buộc:
 | `testMultipleRows()` | Chạy thử nghiệm nhiều dòng cùng lúc qua hộp thoại UI (hỗ trợ nhập `2, 5, 7-10`) | Chạy trực tiếp từ menu `GGT-CNTT > Kiểm thử nhiều dòng...` |
 | `testRow(rowNumber)` | Chạy thử nghiệm với một dòng cụ thể (tự mở prompt nếu không truyền tham số) | Gọi `testRow(2)` qua script call hoặc chạy từ dropdown editor |
 | `processBatchPrompt()` | In PDF hàng loạt nhiều dòng cùng lúc qua hộp thoại UI (hỗ trợ nhập `2, 5, 7-10`) | Chạy trực tiếp từ menu `GGT-CNTT > In PDF hàng loạt...` |
-| `processBatch(from, to)` | Xử lý một khoảng dòng cụ thể (có giãn cách) | Ví dụ: `processBatch(2, 20)` |
+| `processBatch(from, to)` | Đưa một khoảng dòng cụ thể vào hàng đợi xử lý nền | Ví dụ: `processBatch(2, 20)` |
+| `enqueueBatch_` | Lưu danh sách dòng, tiến độ và nhãn lô vào Script Properties; tạo trigger 1 phút | Được gọi tự động bởi `processBatchPrompt`, `testMultipleRows`, `retryPending`, `processBatch` |
+| `continueBatchQueue_` | Xử lý tối đa `MAX_BATCH_ROWS` dòng và dừng trước `BATCH_RUNTIME_BUDGET_MS`; checkpoint sau mỗi dòng | Trigger thời gian tự gọi mỗi phút |
+| `cancelBatchQueue` | Hủy phần còn lại của lô đang chạy, giữ nguyên tiến độ đã checkpoint | Chạy từ Apps Script khi cần dừng khẩn cấp |
+| `refreshDashboard` | Tạo/cập nhật sheet `Dashboard GGT` bằng COUNTA/COUNTIF | Menu `GGT-CNTT > Cập nhật Dashboard` |
+| `approveSelectedRow` | Duyệt hồ sơ đang chọn ở trạng thái “Chờ duyệt” | Bật `REQUIRE_APPROVAL: true` rồi chọn dòng và chạy hàm |
 | `retryPending` | Quét và xử lý lại tất cả các dòng bị lỗi hoặc chưa gửi | Chạy sau khi giảng viên/sinh viên đã chỉnh sửa dữ liệu sai |
+| `test_suite.js` | Bộ 93 ca kiểm thử tự động (Node.js, không cần Google) | `cd sources && node test_suite.js` |
+
+---
+
+## 4.1 Kết quả thực nghiệm (17–18/10/2026)
+
+Số liệu lấy trực tiếp từ Sheet `Cấp Giấy Giới Thiệu Thực Tập (Responses).xlsx`:
+
+| Chỉ số | Kết quả |
+|---|---|
+| Tổng số hồ sơ được xử lý | **361** |
+| Cấp Giấy giới thiệu PDF tự động | **330** (91,41%) |
+| Bị chặn kèm nguyên nhân | **31** (8,59%) — 11 sai cú pháp MST, 8 doanh nghiệp ngừng hoạt động, 5 MST không tồn tại, 5 tên không khớp, 1 thiếu tên, 1 SĐT sai |
+| Trong đó: MST đúng nhưng tên doanh nghiệp lệch | **5** hồ sơ — đều bị chặn trước khi cấp giấy |
+| Số đợt chạy nền | 4 đợt (10 / 42 / 40 / 269 hồ sơ) |
+| Tổng thời gian máy chạy | **82,7 phút** (13,7 giây/hồ sơ) |
+| Ước lượng thủ công (5 phút/hồ sơ) | 1.805 phút — tiết kiệm **95,4%** |
+| Bộ kiểm thử | **93/93 ca đạt** |
+| Số doanh nghiệp khác nhau được cấp giấy | 183 (TMA Solutions: 53 giấy) |
+
+Các biểu đồ và báo cáo được sinh lại từ dữ liệu thật:
+
+```bash
+python figures/make_figures.py     # sinh toàn bộ hình trong figures/
+python tools/update_report.py      # dựng lại báo cáo từ template của Khoa
+```
 
 ---
 
